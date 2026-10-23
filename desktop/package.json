@@ -1,0 +1,92 @@
+{
+  "name": "toefl-practice-desktop",
+  "productName": "TOEFL Practice",
+  "version": "1.0.0",
+  "description": "TOEFL iBT 2026 practice: full tests, adaptive exercises and local AI feedback.",
+  "author": "Ilias Jebrane",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.iliasjebrane.toeflpractice",
+    "productName": "TOEFL Practice",
+    "directories": {
+      "output": "../dist-desktop",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "main.js",
+      "splash.html",
+      "build-resources/icon.png",
+      "package.json"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "../.next/standalone",
+        "to": "app-server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../data/bank",
+        "to": "bank"
+      },
+      {
+        "from": "../content/exercises",
+        "to": "content/exercises"
+      },
+      {
+        "from": "../practice_audios",
+        "to": "practice_audios"
+      },
+      {
+        "from": "../build/stt/stt_server",
+        "to": "stt"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build-resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TOEFL Practice",
+      "artifactName": "TOEFL-Practice-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg"
+        }
+      ],
+      "category": "public.app-category.education",
+      "icon": "build-resources/icon.png",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "TOEFL Practice records your spoken answers for the Speaking section and exercises."
+      },
+      "artifactName": "TOEFL-Practice-${version}-${arch}.${ext}"
+    },
+    "afterPack": "./afterPack.js"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "toefl-practice",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n web,stt -c blue,magenta \"next dev\" \"npm:stt\"",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "import-bank": "tsx scripts/import-bank.ts",
+    "test": "vitest run",
+    "dev:web": "next dev",
+    "stt": "py -3.12 stt/stt_server.py",
+    "generate-audio": "tsx scripts/generate-audio.ts",
+    "desktop:prepare": "next build && node scripts/prepare-desktop.mjs",
+    "desktop:dev": "npm --prefix desktop start",
+    "desktop:build": "npm run desktop:prepare && npm --prefix desktop run dist:win",
+    "desktop:build:mac": "npm run desktop:prepare && npm --prefix desktop run dist:mac",
+    "build:stt": "powershell -ExecutionPolicy Bypass -File scripts/build-stt.ps1"
+  },
+  "dependencies": {
+    "dictionary-en": "^4.0.0",
+    "dictionary-en-gb": "^3.0.0",
+    "next": "16.3.6",
+    "nspell": "^2.1.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^24.19.0",
+    "@types/nspell": "^2.1.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "concurrently": "^10.0.5",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.0.2"
+  }
+}

@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #fbfbf9;
+  --ink: #16181d;
+  --ink-2: #454a54;
+  --ink-3: #737985;
+  --line: #e2e2dd;
+  --line-strong: #c9c9c2;
+  --accent: #1d3f72;
+  --accent-hover: #16325c;
+  --accent-weak: #e9eef6;
+  --success: #1c6440;
+  --success-weak: #e6f1ea;
+  --danger: #a1322c;
+  --danger-weak: #f8e9e7;
+  --warn: #7f5500;
+  --warn-weak: #faf1dd;
+  --focus: #2f64b5;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-weak: var(--accent-weak);
+  --color-success: var(--success);
+  --color-success-weak: var(--success-weak);
+  --color-danger: var(--danger);
+  --color-danger-weak: var(--danger-weak);
+  --color-warn: var(--warn);
+  --color-warn-weak: var(--warn-weak);
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: #cfdcf0;
+}
+
+/* Reading passages: comfortable measure and rhythm. */
+.passage p + p {
+  margin-top: 0.9em;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* View change: short, calm fade. */
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.view-in {
+  animation: view-in 160ms ease-out both;
+}
+
+@keyframes pop {
+  50% {
+    transform: scale(1.25);
+  }
+}
+.pop {
+  animation: pop 140ms ease-out;
+}
+
+/* Exercises: heart loss (filled → fading/shrinking → outline), wrong-answer shake, correct-answer settle. */
+@keyframes heart-lose {
+  0% { transform: scale(1); opacity: 1; }
+  45% { transform: scale(0.6); opacity: 0.35; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.heart-lose {
+  animation: heart-lose 420ms ease-out;
+}
+@keyframes shake {
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
+}
+.shake {
+  animation: shake 320ms ease-in-out;
+}
+@keyframes settle {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.settle {
+  animation: settle 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
