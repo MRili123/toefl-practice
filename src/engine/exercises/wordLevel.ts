@@ -41,6 +41,9 @@ function baseForms(w: string): string[] {
   return [...out];
 }
 
+/** Frequency rank of a word (0 = most common), via its most frequent base form; null when the list is unavailable. */
+export const wordRank = (word: string): number | null => rankOf(word);
+
 /** A word that is rare in English (or unknown to the frequency list); false when the list is unavailable. */
 export function isRareWord(word: string): boolean {
   const r = rankOf(word);

@@ -22,8 +22,9 @@ import { itemIndex, loadTest } from "@/engine/bank/loader";
 import type { CompleteTheWordsTask } from "@/engine/bank/types";
 import { exerciseBank } from "@/engine/exercises/bank";
 import { exampleAround, isPlausibleFix, mistakeFocus } from "@/engine/exercises/corrections";
-import { rememberSpellingWord } from "@/engine/exercises/memory";
+import { findSpellingWord, mergeDuplicateWords, rememberSpellingWord } from "@/engine/exercises/memory";
 import { checkedWordLevel } from "@/engine/exercises/wordLevel";
+import { normalizedText, soundsLike } from "@/engine/exercises/words";
 import { exerciseSessions, learnerMemory, type LearnerMemory } from "@/engine/exercises/store";
 import {
   type Cefr, CEFR_LEVELS, GRAMMAR_CATEGORIES, type GrammarCategory, type GrammarQuestion, type MasteryStatus,
@@ -63,9 +64,24 @@ export interface Mistake {
   checkError: string | null;
   /** Grammar mistakes (as checked by the AI): the AI-generated question made from it. */
   question: { state: "none" | "queued" | "running" | "done" | "error"; error: string | null; item: GrammarQuestion | null } | null;
+  /** What the mistake turned into in practice, in plain words for the learner. */
+  practice: MistakePractice;
 }
 
-type Raw = Omit<Mistake, "practiceKey" | "status" | "mastered" | "question" | "check" | "checkError"> & {
+export interface MistakePractice {
+  area: "spelling" | "grammar";
+  /**
+   * added: the AI added a word / wrote a question from your mistakes; exists: the word was already in Spelling
+   * practice; not-added: nothing to practise (see `reason`); pending: the AI is still working; none: grammar
+   * question not made yet; error: the AI step failed.
+   */
+  state: "added" | "exists" | "not-added" | "pending" | "none" | "error";
+  /** The practised word, when there is one. */
+  word: string | null;
+  reason: string | null;
+}
+
+type Raw = Omit<Mistake, "practiceKey" | "status" | "mastered" | "question" | "check" | "checkError" | "practice"> & {
   /** Practice item already known from the session (spelling/reading exercise). */
   itemKey: string | null;
   /** The context sentence with the mistake fixed (for generating a question). */
@@ -141,7 +157,7 @@ export async function collect(): Promise<Raw[]> {
           id: hash("series-reading", s.id, itemId, typed), type: "spelling", source: "series-reading",
           original: ref.blank.prefix + typed, correction: ref.blank.fullWord, context: ctx.wrong, contextFixed: ctx.fixed,
           explanation: null, category: null, level: bandLevel(reading.score?.band) ?? (moduleLevel as Cefr),
-          at: s.completedAt ?? s.updatedAt, where: { label: `Test ${s.testNumber} · Reading · Complete the Words`, href }, itemKey: null,
+          at: s.completedAt ?? s.updatedAt, where: { label: `Test ${s.testNumber} · Reading · Complete the Words`, href: `${href}/reading?item=${encodeURIComponent(itemId)}` }, itemKey: null,
         });
       }
     }
@@ -162,7 +178,7 @@ export async function collect(): Promise<Raw[]> {
         out.push({
           id: hash("series-writing", s.id, itemId, w.key, w.original, w.correction), type: w.type, source: "series-writing",
           original: w.original, correction: w.correction, context: w.context, contextFixed: w.contextFixed, explanation: w.explanation,
-          category: w.category, level, at: ev.updatedAt, where: { label: `Test ${s.testNumber} · Writing · ${task}`, href }, itemKey: null,
+          category: w.category, level, at: ev.updatedAt, where: { label: `Test ${s.testNumber} · Writing · ${task}`, href: `${href}/writing?item=${encodeURIComponent(itemId)}` }, itemKey: null,
         });
       }
     }
@@ -171,8 +187,8 @@ export async function collect(): Promise<Raw[]> {
   // Exercises
   const bank = exerciseBank();
   for (const s of await exerciseSessions.list()) {
-    const href = `/profile/exercises/${s.id}`;
     s.attempts.forEach((a, n) => {
+      const href = `/profile/exercises/${s.id}?item=${n + 1}`; // opens the session at this answer
       const fb = a.feedback;
       if (s.kind === "spelling" && a.correct === false && fb?.kind === "spelling") {
         out.push({
@@ -263,6 +279,7 @@ export async function syncMistakes(found?: Raw[]): Promise<Raw[]> {
   const toCheck: Raw[] = [];
   const resume: Raw[] = [];
   await learnerMemory.update((m) => {
+    mergeDuplicateWords(m, bankWords());
     for (const x of all) {
       const link: MistakeLink = (m.mistakes[x.id] ??= { at: now });
       if (needsCheck(x) && !link.verdict && !checking.has(x.id)) {
@@ -318,7 +335,7 @@ function applyVerdict(m: LearnerMemory, x: Raw, link: MistakeLink, now: number):
     if (link.spellingItemId === undefined) {
       const source = x.source === "series-writing" || x.source === "writing-exercise" ? "writing" : "reading";
       const ids = practiceWords(x).map((w) => {
-        const existing = bankWords().get(w.toLowerCase()) ?? m.generated.spelling.find((s) => s.text.toLowerCase() === w.toLowerCase());
+        const existing = findSpellingWord(m, w, bankWords());
         const r = existing ? m.records[`spelling:${existing.id}`] : undefined;
         // Already being practised after an earlier mistake: link it without counting the same mistake twice.
         if (existing && r && r.incorrect > 0 && r.status !== "mastered" && r.status !== "strong") return existing.id;
@@ -375,6 +392,9 @@ function enqueueCheck(x: Raw) {
 
 /* ---------- question generation ---------- */
 
+/** Two mistakes with the same fix ("swim" → "swam") practise the same grammar point. */
+const fixKey = (x: Pick<Raw, "original" | "correction">) => `${normalizedText(x.original)}→${normalizedText(x.correction)}`;
+
 function enqueue(x: Raw) {
   active.add(x.id);
   exerciseQueue.task(`mistake:${x.id}`, async () => {
@@ -392,11 +412,24 @@ function enqueue(x: Raw) {
       const topic = TOPIC_LABEL[SPEAKING_TOPICS[Math.floor(Math.random() * SPEAKING_TOPICS.length)]].toLowerCase();
       const example = `${x.context ?? x.original} → ${x.contextFixed ?? x.correction}`;
       const focus = mistakeFocus(x.original, x.correction) ?? undefined;
+      // The same fix was already turned into a question (another mistake): share it instead of writing a second one.
+      const questionIds = new Set([...exerciseBank().grammar, ...m.generated.grammar].map((q) => q.id));
+      const twin = (await collect()).find((r) => r.id !== x.id && fixKey(r) === fixKey(x) && questionIds.has(m.mistakes[r.id]?.questionId ?? ""));
+      if (twin) {
+        await setLink(x.id, (l) => {
+          l.questionId = m.mistakes[twin.id].questionId;
+          l.category = category;
+          delete l.generation;
+        });
+        return;
+      }
       const q = await generateGrammarQuestion(category, level, topic, [example], avoid, `gr-gen-${n}`, { attempts: 6, focus });
       if (!q) throw new Error("The AI could not write a reliable question for this mistake. Try again.");
       await setLink(x.id, (l, mm) => {
-        mm.generated.grammar.push({ ...q, tags: [...q.tags, `mistake:${x.id}`] });
-        l.questionId = q.id;
+        // A question identical to one that exists is not added again: the mistake uses the existing one.
+        const same = [...exerciseBank().grammar, ...mm.generated.grammar].find((e) => normalizedText(e.stem) === normalizedText(q.stem));
+        if (!same) mm.generated.grammar.push({ ...q, tags: [...q.tags, `mistake:${x.id}`] });
+        l.questionId = same?.id ?? q.id;
         l.category = category;
         delete l.generation;
       });
@@ -418,7 +451,7 @@ export async function requestMistakeQuestion(id: string): Promise<Mistake> {
   const l = m.mistakes[id];
   if (!l?.verdict) throw new EngineError("not_checked", "The AI has not checked this mistake yet. Wait a moment and try again.", 409);
   if (!generates(x, l)) throw new EngineError("invalid_action", "The AI found this is a spelling mistake: the word is practised in Spelling.", 400);
-  const hasQuestion = !!l.questionId && m.generated.grammar.some((q) => q.id === l.questionId);
+  const hasQuestion = !!l.questionId && [...exerciseBank().grammar, ...m.generated.grammar].some((q) => q.id === l.questionId);
   if (!hasQuestion && !active.has(id)) {
     await setLink(id, (link) => {
       delete link.questionId;
@@ -431,11 +464,59 @@ export async function requestMistakeQuestion(id: string): Promise<Mistake> {
 
 /* ---------- views ---------- */
 
+/** What happened in practice because of a mistake: a word in Spelling practice, or a question in Grammar practice. */
+function practiceOf(
+  x: Pick<Raw, "source" | "correction" | "original" | "context">,
+  link: MistakeLink | undefined,
+  type: Mistake["type"],
+  check: Mistake["check"],
+  question: Mistake["question"],
+  known: {
+    words: Map<string, unknown>;
+    generatedWords: Map<string, string>;
+    generatedIds: Set<string>;
+    textOf: Map<string, string>;
+    findWord: (word: string) => { text: string } | undefined;
+  },
+): MistakePractice {
+  // Spelling practice mistakes are words that are already in Spelling practice (perhaps merged into another form).
+  if (!needsCheck(x)) {
+    const same = known.findWord(x.correction);
+    return { area: "spelling", state: "exists", word: same?.text ?? x.correction, reason: null };
+  }
+  if (check === "pending") return { area: type, state: "pending", word: null, reason: null };
+  if (check === "error") return { area: type, state: "error", word: null, reason: link?.check?.error ?? null };
+  if (type === "grammar") {
+    const state = question?.state ?? "none";
+    return {
+      area: "grammar",
+      state: state === "done" ? "added" : state === "queued" || state === "running" ? "pending" : state === "error" ? "error" : "none",
+      word: null,
+      reason: state === "error" ? question?.error ?? null : null,
+    };
+  }
+  const word = practiceWords(x)[0] ?? null;
+  const key = word?.toLowerCase() ?? "";
+  const id = link?.spellingItemId ?? (key ? known.generatedWords.get(key) : undefined);
+  const practised = (id && known.textOf.get(id)) || word;
+  if (id && known.generatedIds.has(id)) return { area: "spelling", state: "added", word: practised, reason: null };
+  if (id || (key && known.words.has(key))) return { area: "spelling", state: "exists", word: practised, reason: null };
+  const alike = word ? soundsLike(word) : [];
+  return {
+    area: "spelling",
+    state: "not-added",
+    word,
+    reason: !word ? "not a single word to dictate" : alike.length ? `it sounds like “${alike[0]}”, so dictation cannot test it` : "it cannot be practised as a dictated word",
+  };
+}
+
 async function viewMistakes(all: Raw[]): Promise<Mistake[]> {
   const m = await learnerMemory.get();
   const words = bankWords();
   const generatedWords = new Map(m.generated.spelling.map((s) => [s.text.toLowerCase(), s.id]));
-  const questions = new Map(m.generated.grammar.map((q) => [q.id, q]));
+  const generatedIds = new Set(m.generated.spelling.map((s) => s.id));
+  const textOf = new Map([...words.values(), ...m.generated.spelling].map((s) => [s.id, s.text]));
+  const questions = new Map([...exerciseBank().grammar, ...m.generated.grammar].map((q) => [q.id, q]));
   return all
     .map(({ itemKey, contextFixed, ...x }) => {
       void contextFixed; // only needed to generate questions
@@ -443,6 +524,11 @@ async function viewMistakes(all: Raw[]): Promise<Mistake[]> {
       const type = typeOf(x, link);
       let practiceKey = itemKey;
       let question: Mistake["question"] = null;
+      // A practice word merged into another form of it ("governments" → "government") is practised there now.
+      if (practiceKey?.startsWith("spelling:") && !textOf.has(practiceKey.slice(9)) && x.source === "spelling-exercise") {
+        const same = findSpellingWord(m, x.correction, words);
+        if (same) practiceKey = `spelling:${same.id}`;
+      }
       // A spelling mistake is mastered with its word in Spelling practice (else its passage/dictation item).
       if (type === "spelling" && needsCheck(x) && link?.verdict) {
         const word = practiceWords(x)[0]?.toLowerCase() ?? "";
@@ -463,6 +549,7 @@ async function viewMistakes(all: Raw[]): Promise<Mistake[]> {
       const r = practiceKey ? m.records[practiceKey] : undefined;
       const status = r && r.attempts > 0 ? r.status : null;
       const check: Mistake["check"] = !needsCheck(x) ? "none" : link?.verdict ? "done" : link?.check?.stage === "error" ? "error" : "pending";
+      const practice = practiceOf(x, link, type, check, question, { words, generatedWords, generatedIds, textOf, findWord: (w) => findSpellingWord(m, w, words) });
       return {
         ...x,
         type,
@@ -474,6 +561,7 @@ async function viewMistakes(all: Raw[]): Promise<Mistake[]> {
         question,
         check,
         checkError: link?.check?.error ?? null,
+        practice,
       };
     })
     .sort((a, b) => b.at - a.at);

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { scrollIntoViewSoon } from "@/lib/scrollIntoViewSoon";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { type GrammarQuestion, KIND_LABEL, type ReadingPassage, type SpellingItem, type WritingPrompt } from "@/engine/exercises/types";
@@ -10,6 +11,7 @@ import { formatDate } from "@/lib/format";
 import { Button, cx, EmptyState, Modal, Spinner } from "@/components/ui/primitives";
 import { IconArrowLeft } from "@/components/ui/icons";
 import { BookmarkButton, useRegister } from "@/components/register/Bookmark";
+import { BackToMistakes } from "@/components/profile/BackToMistakes";
 import {
   GrammarExplanation, GrammarOptions, GrammarStem, RepeatFeedbackView, SpeakingFeedbackView, SpellingFeedbackView,
   WritingEvaluationView,
@@ -30,10 +32,10 @@ function StatusTag({ a }: { a: RevealedAttempt }) {
   return <span className={cx("text-sm font-medium", a.correct ? "text-success" : "text-danger")}>{a.correct ? "Correct" : a.heartLost ? "Incorrect · ♥ lost" : "Incorrect"}</span>;
 }
 
-function AttemptCard({ view, a, bookmark }: { view: ExerciseView; a: RevealedAttempt; bookmark: React.ReactNode }) {
+function AttemptCard({ view, a, bookmark, focused }: { view: ExerciseView; a: RevealedAttempt; bookmark: React.ReactNode; focused?: boolean }) {
   const recordingUrl = a.answer && view.kind.startsWith("speaking") ? `/api/exercises/recordings/${view.id}/${a.answer}` : null;
   return (
-    <article id={`item-${a.number}`} className="rounded-xl border border-line bg-surface p-5 sm:p-6">
+    <article id={`item-${a.number}`} className={cx("scroll-mt-24 rounded-xl border border-line bg-surface p-5 sm:p-6", focused && "ring-2 ring-accent ring-offset-4 ring-offset-bg")}>
       <header className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm text-ink-3">
           <span className="font-semibold text-ink tabular">{a.number}.</span>
@@ -68,7 +70,7 @@ function AttemptCard({ view, a, bookmark }: { view: ExerciseView; a: RevealedAtt
             <div className="mt-3"><PromptPanel prompt={a.detail as WritingPrompt} /></div>
           </details>
           {a.feedback?.kind === "writing" ? (
-            <WritingEvaluationView fb={a.feedback} text={a.answer ?? ""} subject={a.subject} />
+            <WritingEvaluationView fb={a.feedback} text={a.answer ?? ""} subject={a.subject} levels={{ sessionId: view.id, itemId: a.itemId, initial: a.levels }} />
           ) : (
             <div className="whitespace-pre-wrap text-[15px] leading-relaxed">{a.answer}</div>
           )}
@@ -77,7 +79,7 @@ function AttemptCard({ view, a, bookmark }: { view: ExerciseView; a: RevealedAtt
       {view.kind === "speaking-interaction" && (
         <div className="space-y-5">
           <p className="text-lg font-medium">{a.prompt}</p>
-          {a.feedback?.kind === "speaking" ? <SpeakingFeedbackView fb={a.feedback} recordingUrl={recordingUrl} /> : recordingUrl && <audio controls src={recordingUrl} className="w-full max-w-xs" />}
+          {a.feedback?.kind === "speaking" ? <SpeakingFeedbackView fb={a.feedback} recordingUrl={recordingUrl} levels={{ sessionId: view.id, itemId: a.itemId, initial: a.levels }} /> : recordingUrl && <audio controls src={recordingUrl} className="w-full max-w-xs" />}
         </div>
       )}
       {view.kind === "speaking-repeat" && (
@@ -91,7 +93,8 @@ function AttemptCard({ view, a, bookmark }: { view: ExerciseView; a: RevealedAtt
   );
 }
 
-export function ExerciseReview({ id }: { id: string }) {
+/** `focus`: the answer number to scroll to (a link from My Mistakes). */
+export function ExerciseReview({ id, focus, backTo }: { id: string; focus?: number; backTo?: string }) {
   const router = useRouter();
   const [view, setView] = useState<ExerciseView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,9 +106,16 @@ export function ExerciseReview({ id }: { id: string }) {
   useEffect(() => {
     api.exercise(id).then((v) => {
       setView(v);
-      if (v.attempts.some((a) => a.correct === false)) setFilter("mistakes");
+      const target = focus ? v.attempts.find((a) => a.number === focus) : undefined;
+      // Show only the mistakes, unless the answer we were sent to is not one of them.
+      if (v.attempts.some((a) => a.correct === false) && (!target || target.correct === false)) setFilter("mistakes");
     }, (e) => setError((e as Error).message));
-  }, [id]);
+  }, [id, focus]);
+
+  const loaded = !!view;
+  useEffect(() => {
+    if (loaded && focus) scrollIntoViewSoon(`item-${focus}`);
+  }, [loaded, focus]);
 
   if (error) return <EmptyState title="This practice session could not be loaded" text={error} action={<Link href="/profile" className="text-accent hover:underline">Back to Profile</Link>} />;
   if (!view) return <div className="flex items-center gap-2 py-16 text-ink-3"><Spinner /> Loading…</div>;
@@ -117,7 +127,10 @@ export function ExerciseReview({ id }: { id: string }) {
   return (
     <>
       <header className="pb-8">
-        <Link href="/profile" className="inline-flex items-center gap-1 text-sm text-ink-2 hover:text-ink"><IconArrowLeft /> Profile</Link>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Link href="/profile" className="inline-flex items-center gap-1 text-sm text-ink-2 hover:text-ink"><IconArrowLeft /> Profile</Link>
+          {backTo && <BackToMistakes mistakeId={backTo} />}
+        </div>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-sm text-ink-3">
@@ -157,7 +170,7 @@ export function ExerciseReview({ id }: { id: string }) {
       ) : (
         <div className="space-y-4">
           {shown.map((a) => (
-            <AttemptCard key={`${a.itemId}-${a.number}`} view={view} a={a} bookmark={<BookmarkButton saved={reg.isSaved(a.itemId)} onToggle={() => void reg.toggle(a.itemId)} />} />
+            <AttemptCard key={`${a.itemId}-${a.number}`} view={view} a={a} focused={a.number === focus} bookmark={<BookmarkButton saved={reg.isSaved(a.itemId)} onToggle={() => void reg.toggle(a.itemId)} />} />
           ))}
         </div>
       )}

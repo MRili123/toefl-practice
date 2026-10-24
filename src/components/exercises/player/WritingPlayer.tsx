@@ -261,7 +261,7 @@ export function WritingPlayer({
           <Button className="mt-3" onClick={() => act({ type: "retry", itemId: last.itemId }).catch((e) => setError((e as Error).message))}>Retry evaluation</Button>
         </div>
       ) : last.feedback?.kind === "writing" ? (
-        <WritingEvaluationView fb={last.feedback} text={last.answer ?? ""} subject={last.subject} />
+        <WritingEvaluationView fb={last.feedback} text={last.answer ?? ""} subject={last.subject} levels={{ sessionId: view.id, itemId: last.itemId, initial: last.levels }} />
       ) : null}
     </div>
   );

@@ -6,6 +6,8 @@ import { profiles } from "@/engine/profile/store";
 import { type AnyItem, bankWords, findItem, itemPrompt, requireItem } from "./exerciseItems";
 import { requestMistakeSync } from "./admin/mistakes";
 import { exerciseQueue } from "./exerciseQueue";
+import { type LevelTextType, levelOfText, rewriteAtLevel } from "@/ai/exercises/levels";
+import { correctedText, fromExerciseCorrections } from "@/lib/corrections";
 import { exerciseBank } from "@/engine/exercises/bank";
 import { gradeGrammar, gradeReading, gradeSpelling, isNearMiss } from "@/engine/exercises/grading";
 import { isActiveMistake, masteryPercent, statusCounts } from "@/engine/exercises/mastery";
@@ -16,11 +18,12 @@ import {
   recordAttempt, summarize,
 } from "@/engine/exercises/session";
 import { EXERCISE_RECORDINGS_DIR, exerciseSessions, type LearnerMemory, learnerMemory } from "@/engine/exercises/store";
+import { normalizedText, sameWord } from "@/engine/exercises/words";
 import {
   type AttemptFeedback, type Cefr, CEFR_BAND, EXERCISE_AREAS, type ExerciseArea, areaOf, type ExerciseAttempt,
   type ExerciseConfig, type ExerciseKind, type ExerciseSession, GRAMMAR_CATEGORY_LABEL, type GrammarCategory,
   type GrammarQuestion, MAX_HEARTS, type MasteryRecord, type ReadingPassage, type RepeatSentence, type SpeakingQuestion, type SpellingItem,
-  type TrackedKind, type WritingPrompt,
+  type TrackedKind, type WritingLevels, type WritingPrompt, CEFR_LEVELS,
 } from "@/engine/exercises/types";
 
 /* ---------- items ---------- */
@@ -45,10 +48,22 @@ function trackedPool(config: ExerciseConfig, m: LearnerMemory): LeveledItem[] {
   const bank = exerciseBank();
   if (config.kind === "spelling") {
     const types = config.spellingType === "mixed" || !config.spellingType ? ["word", "sentence"] : [config.spellingType];
-    return [...bank.spelling, ...m.generated.spelling].filter((s) => types.includes(s.type)).map((s) => ({ id: s.id, level: s.level }));
+    const items: SpellingItem[] = [];
+    for (const s of [...bank.spelling, ...m.generated.spelling]) {
+      if (!types.includes(s.type)) continue;
+      const dup = items.some((k) => k.type === s.type && (s.type === "word" ? sameWord(k.text, s.text) : normalizedText(k.text) === normalizedText(s.text)));
+      if (!dup) items.push(s);
+    }
+    return items.map((s) => ({ id: s.id, level: s.level }));
   }
   if (config.kind === "grammar") {
-    const all = [...bank.grammar, ...m.generated.grammar];
+    const stems = new Set<string>();
+    const all = [...bank.grammar, ...m.generated.grammar].filter((g) => {
+      const key = normalizedText(g.stem);
+      if (stems.has(key)) return false;
+      stems.add(key);
+      return true;
+    });
     return all.filter((g) => !config.focus || g.category === config.focus).map((g) => ({ id: g.id, level: g.level }));
   }
   return bank.repeat.map((s) => ({ id: s.id, level: s.level }));
@@ -80,7 +95,8 @@ function planItems(config: ExerciseConfig, m: LearnerMemory): { itemId: string; 
   if (kind) {
     const perLevel = usesLadder(kind) ? LADDER_PER_LEVEL : 10;
     const reviewInLevel = usesLadder(kind);
-    return adaptivePlan(trackedPool(config, m), recordsFor(m, kind), rng, { first: generatedFirst(config, m), perLevel, reviewInLevel })
+    const mixReview = config.kind === "spelling" && config.mistakeOrder !== "first";
+    return adaptivePlan(trackedPool(config, m), recordsFor(m, kind), rng, { first: generatedFirst(config, m), perLevel, reviewInLevel, mixReview })
       .map((i) => ({ itemId: i.id, level: i.level }));
   }
   const seen = new Map(Object.entries(m.seen));
@@ -486,6 +502,60 @@ export async function retryEvaluation(id: string, itemId: string): Promise<Exerc
   });
   exerciseQueue.evaluate(id, itemId);
   return withScore(buildView(session, await learnerMemory.get()), session);
+}
+
+/* ---------- writing: the improved version at each CEFR level ---------- */
+
+const levelJobs = new Map<string, Promise<WritingLevels>>();
+
+/**
+ * Writing: the CEFR level of the AI's improved version, and (with `level`) that text rewritten at another level.
+ * Each result is generated once and kept with the attempt; the same request in flight is shared.
+ */
+export function writingLevels(id: string, itemId: string, level?: Cefr): Promise<WritingLevels> {
+  if (level && !CEFR_LEVELS.includes(level)) throw new EngineError("invalid_level", "Unknown level.", 400);
+  const key = `${id}:${itemId}:${level ?? "rate"}`;
+  const running = levelJobs.get(key);
+  if (running) return running;
+  const job = buildWritingLevels(id, itemId, level).finally(() => levelJobs.delete(key));
+  levelJobs.set(key, job);
+  return job;
+}
+
+async function buildWritingLevels(id: string, itemId: string, level?: Cefr): Promise<WritingLevels> {
+  const s = await exerciseSessions.get(id);
+  if (!s) throw new EngineError("exercise_not_found", "Practice session not found", 404);
+  const rated = (x: ExerciseAttempt) => x.itemId === itemId && (x.feedback?.kind === "writing" || x.feedback?.kind === "speaking");
+  const a = [...s.attempts].reverse().find(rated);
+  // Writing: the AI's improved version. Speaking: the transcript with the AI's corrections applied.
+  const fb = a?.feedback;
+  const base = fb?.kind === "writing" ? fb.improvedVersion.trim()
+    : fb?.kind === "speaking" ? correctedText(fb.transcript, fromExerciseCorrections(fb.errors)).trim() : "";
+  if (!a || !base) throw new EngineError("no_improved_version", "There is no corrected version of this answer yet.", 409);
+  const type: LevelTextType = fb?.kind === "speaking" ? "speaking" : s.config.writingType ?? "email";
+  let levels: WritingLevels = a.levels ?? { estimated: null, reason: null, versions: {} };
+  const save = async (patch: (l: WritingLevels) => void) => {
+    const { session } = await exerciseSessions.update(id, (ss) => {
+      const att = [...ss.attempts].reverse().find(rated);
+      if (!att) return;
+      att.levels ??= { estimated: null, reason: null, versions: {} };
+      patch(att.levels);
+    });
+    const att = [...session.attempts].reverse().find(rated);
+    levels = att?.levels ?? levels;
+  };
+  if (!levels.estimated) {
+    const r = await levelOfText(base, type);
+    await save((l) => {
+      l.estimated = r.level;
+      l.reason = r.reason;
+    });
+  }
+  if (level && level !== levels.estimated && !levels.versions[level]) {
+    const v = await rewriteAtLevel(base, levels.estimated!, level, type);
+    await save((l) => void (l.versions[level] = v));
+  }
+  return levels;
 }
 
 /** Text the TTS endpoint may speak for this session item (never exposed to the browser as text). */

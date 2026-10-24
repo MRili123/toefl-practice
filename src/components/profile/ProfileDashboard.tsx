@@ -14,7 +14,7 @@ import { IconArrowRight, IconBookmark, IconChevronDown, IconClock, IconTrash, Ic
 import { SectionIcon } from "@/components/ui/sectionIcons";
 import { LevelRadial } from "./LevelRadial";
 import { NotesSection } from "./NotesSection";
-import { DataSection } from "./DataSection";
+import { MistakesSection } from "./MistakesSection";
 import { ExerciseProgress } from "./ExerciseProgress";
 import type { ExercisesOverview } from "@/server/exercises";
 import { TASK_LABEL } from "./levels";
@@ -387,8 +387,7 @@ export function ProfileDashboard() {
         <EmptyState compact title="No courses started yet." text={data.courses.available ? "Browse Courses to start learning." : "Courses will appear in the Courses section once they are added."} />
       </section>
 
-      {/* Level 8: export / import and setup */}
-      <DataSection onImported={load} />
+      <MistakesSection />
 
       <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete result">
         {deleting && (

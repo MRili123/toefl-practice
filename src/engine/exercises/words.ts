@@ -40,3 +40,31 @@ for (const group of HOMOPHONE_GROUPS) for (const w of group) HOMOPHONES.set(w, [
 
 /** The words that sound like `word` (empty when it has none). */
 export const soundsLike = (word: string): string[] => HOMOPHONES.get(word.toLowerCase()) ?? [];
+
+/**
+ * The word and the base it may be inflected from: plural (-s, -es, -ies), past (-ed) and -ing. Short bases are
+ * left out so different words are not merged: "news" is not "new", "evening" is not "even".
+ */
+export function wordForms(word: string): Set<string> {
+  const w = word.toLowerCase();
+  const out = new Set([w]);
+  const rules: [suffix: string, replace: string, minBase: number][] = [
+    ["ies", "y", 4], ["es", "", 4], ["s", "", 4], ["ed", "", 4], ["ed", "e", 4], ["ing", "", 5], ["ing", "e", 5],
+  ];
+  for (const [suffix, replace, minBase] of rules) {
+    if (!w.endsWith(suffix)) continue;
+    const base = w.slice(0, -suffix.length) + replace;
+    if (base.length >= minBase) out.add(base);
+  }
+  return out;
+}
+
+/** The same word in another form: "government" / "governments", "select" / "selected". */
+export function sameWord(a: string, b: string): boolean {
+  const fa = wordForms(a);
+  for (const f of wordForms(b)) if (fa.has(f)) return true;
+  return false;
+}
+
+/** Text compared for duplicates: case, punctuation and spacing ignored. */
+export const normalizedText = (s: string) => s.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();

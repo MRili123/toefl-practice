@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useState } from "react";
+import { scrollIntoViewSoon } from "@/lib/scrollIntoViewSoon";
+import { BackToMistakes } from "@/components/profile/BackToMistakes";
+import { type ReactNode, useEffect, useState } from "react";
 import { BookmarkButton, useRegister } from "@/components/register/Bookmark";
 import type { SectionId } from "@/engine/bank/types";
 import type { ItemReview, SectionResult } from "@/engine/results/results";
@@ -104,9 +106,10 @@ export function ItemDetail({ it, bookmark }: { it: ItemReview; bookmark?: ReactN
   );
 }
 
-function ObjectiveReview({ section, mark }: { section: SectionResult; mark: (key: string) => ReactNode }) {
+function ObjectiveReview({ section, mark, focus }: { section: SectionResult; mark: (key: string) => ReactNode; focus?: string }) {
   const firstWrong = section.items.find((i) => i.correctness !== "correct") ?? section.items[0];
-  const [selected, setSelected] = useState<string | null>(firstWrong?.itemId ?? null);
+  const focused = section.items.find((i) => i.itemId === focus);
+  const [selected, setSelected] = useState<string | null>(focused?.itemId ?? firstWrong?.itemId ?? null);
   const item = section.items.find((i) => i.itemId === selected);
   if (section.items.length === 0) return null;
   return (
@@ -115,7 +118,9 @@ function ObjectiveReview({ section, mark }: { section: SectionResult; mark: (key
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.06em] text-ink-2">Questions</h3>
         <QuestionGrid items={section.items} selected={selected} onSelect={setSelected} />
       </div>
-      <div>{item && <ItemDetail key={item.itemId} it={item} bookmark={mark(item.taskKind === "complete_the_words" ? item.taskId : item.itemId)} />}</div>
+      <div id={focused ? "focused-item" : undefined} className={cx("scroll-mt-24 rounded-xl", focused && item?.itemId === focused.itemId && "ring-2 ring-accent ring-offset-4 ring-offset-bg")}>
+        {item && <ItemDetail key={item.itemId} it={item} bookmark={mark(item.taskKind === "complete_the_words" ? item.taskId : item.itemId)} />}
+      </div>
     </div>
   );
 }
@@ -155,9 +160,14 @@ function Path({ section }: { section: SectionResult }) {
   );
 }
 
-export function SectionDetail({ sessionId, sectionId }: { sessionId: string; sectionId: SectionId }) {
+/** `focus`: an item to open and scroll to (a link from My Mistakes). */
+export function SectionDetail({ sessionId, sectionId, focus, backTo }: { sessionId: string; sectionId: SectionId; focus?: string; backTo?: string }) {
   const { data, error, retry, confirm } = useResults(sessionId);
   const register = useRegister(sessionId);
+  const loaded = !!data;
+  useEffect(() => {
+    if (loaded && focus) scrollIntoViewSoon("focused-item");
+  }, [loaded, focus]);
   const mark = (key: string) => <BookmarkButton saved={register.isSaved(key)} onToggle={() => void register.toggle(key)} />;
   if (error) return <div className="py-16 text-center text-danger">{error}</div>;
   if (!data) return <div className="flex items-center justify-center gap-2 py-16 text-ink-3"><Spinner /> Loading…</div>;
@@ -167,7 +177,10 @@ export function SectionDetail({ sessionId, sectionId }: { sessionId: string; sec
   const pending = section.score?.status === "pending";
   return (
     <div>
-      <Link href={`/results/${sessionId}`} className="text-sm text-ink-2 hover:text-ink">← All results</Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link href={`/results/${sessionId}`} className="text-sm text-ink-2 hover:text-ink">← All results</Link>
+        {backTo && <BackToMistakes mistakeId={backTo} />}
+      </div>
       <header className="mt-4 flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5">
         <div>
           <Eyebrow>Series {pad2(data.testNumber)} · Performance</Eyebrow>
@@ -203,12 +216,16 @@ export function SectionDetail({ sessionId, sectionId }: { sessionId: string; sec
       {section.items.length > 0 && (
         <section className="mt-8">
           {section.id === "writing" && <h2 className="mb-4 text-lg font-semibold">Build a Sentence</h2>}
-          <ObjectiveReview section={section} mark={mark} />
+          <ObjectiveReview section={section} mark={mark} focus={focus} />
         </section>
       )}
 
       {section.tasks.map((t) => (
-        <section key={t.itemId} className="mt-10 rounded-xl border border-line bg-surface p-5 sm:p-7">
+        <section
+          key={t.itemId}
+          id={t.itemId === focus ? "focused-item" : undefined}
+          className={cx("mt-10 scroll-mt-24 rounded-xl border border-line bg-surface p-5 sm:p-7", t.itemId === focus && "ring-2 ring-accent ring-offset-4 ring-offset-bg")}
+        >
           <div className="flex items-center justify-between">
             <div className="text-sm text-ink-3">Question {t.number}</div>
             {mark(t.itemId)}
@@ -222,13 +239,14 @@ export function SectionDetail({ sessionId, sectionId }: { sessionId: string; sec
           )}
           <div className="mt-6">
             {t.kind === "write_email" || t.kind === "academic_discussion" ? (
-              <WritingEvaluation response={t.response.text ?? ""} evaluation={t.evaluation} onRetry={() => retry(t.itemId)} />
+              <WritingEvaluation response={t.response.text ?? ""} evaluation={t.evaluation} onRetry={() => retry(t.itemId)} sessionId={sessionId} />
             ) : (
               <SpeakingEvaluation
                 recordingUrl={t.response.recordingUrl}
                 evaluation={t.evaluation}
                 onRetry={() => retry(t.itemId)}
                 onValidate={(text) => confirm(t.itemId, text)}
+                sessionId={sessionId}
               />
             )}
           </div>

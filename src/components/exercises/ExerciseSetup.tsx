@@ -16,7 +16,10 @@ import { Field, LevelStepper, OptionCards } from "./shared";
 
 type SpeakingMode = "interaction" | "repeat";
 
-function HowItWorks({ area }: { area: ExerciseArea }) {
+type MistakeOrder = "mixed" | "first";
+const MISTAKE_ORDER_KEY = "spelling-mistake-order";
+
+function HowItWorks({ area, mistakeOrder }: { area: ExerciseArea; mistakeOrder?: MistakeOrder }) {
   const unit = area === "spelling" ? "words and sentences" : area === "grammar" ? "questions" : "sentences";
   // Spelling, Grammar and Listen & Repeat climb a fixed ladder (5 per level up to B1, 10 at B2 and C1, then C2).
   const ladder = area === "spelling" || area === "grammar" || area === "speaking";
@@ -31,7 +34,9 @@ function HowItWorks({ area }: { area: ExerciseArea }) {
         </span></li>
         <li className="flex gap-3"><span className="font-semibold text-accent tabular">2</span><span>
           {ladder
-            ? <>Within each level, the {unit} you got wrong before and have not mastered yet come first — they count in that level’s 5 or 10.</>
+            ? area === "spelling" && mistakeOrder === "mixed"
+              ? <>The {unit} you got wrong before and have not mastered yet are mixed in at random within their level — they count in that level’s 5 or 10.</>
+              : <>Within each level, the {unit} you got wrong before and have not mastered yet come first — they count in that level’s 5 or 10.</>
             : <>Then 10 random {unit} from each level: A1 → A2 → B1 → B2 → C1 → C2. The level rises automatically.</>}
         </span></li>
         <li className="flex gap-3"><span className="font-semibold text-accent tabular">3</span><span>There is no question limit: you keep going until you lose all 5 hearts. Every mistake is saved for next time.</span></li>
@@ -39,6 +44,15 @@ function HowItWorks({ area }: { area: ExerciseArea }) {
     </div>
   );
 }
+/** The learner's last choice (Normal by default). */
+function savedMistakeOrder(): MistakeOrder {
+  try {
+    return localStorage.getItem(MISTAKE_ORDER_KEY) === "first" ? "first" : "mixed";
+  } catch {
+    return "mixed";
+  }
+}
+
 type Timing = "toefl" | "5" | "7" | "10" | "15" | "20" | "30" | "custom" | "none";
 
 export function ExerciseSetup({ area, focus, mode: initialMode }: { area: ExerciseArea; focus?: GrammarCategory; mode?: SpeakingMode }) {
@@ -50,6 +64,7 @@ export function ExerciseSetup({ area, focus, mode: initialMode }: { area: Exerci
   const [readingTime, setReadingTime] = useState<string>("180");
   const [customReadingMinutes, setCustomReadingMinutes] = useState(4);
   const [spellingType, setSpellingType] = useState<"mixed" | "word" | "sentence">("mixed");
+  const [mistakeOrder, setMistakeOrder] = useState<MistakeOrder>("mixed");
   const [grammarFocus, setGrammarFocus] = useState<GrammarCategory | undefined>(focus);
   const [writingType, setWritingType] = useState<WritingType>("email");
   const [timing, setTiming] = useState<Timing>("toefl");
@@ -63,9 +78,13 @@ export function ExerciseSetup({ area, focus, mode: initialMode }: { area: Exerci
   useEffect(() => {
     api.exercises().then((o) => {
       setOverview(o);
+      setMistakeOrder(savedMistakeOrder());
       const a = o.areas[area];
       setLevel((l) => l ?? a.recommended ?? a.level ?? "B1");
-    }, () => setLevel((l) => l ?? "B1"));
+    }, () => {
+      setLevel((l) => l ?? "B1");
+      setMistakeOrder(savedMistakeOrder());
+    });
   }, [area]);
 
   const recommended = overview?.areas[area].recommended ?? null;
@@ -84,7 +103,7 @@ export function ExerciseSetup({ area, focus, mode: initialMode }: { area: Exerci
             kind: "reading", level: level ?? undefined, count,
             timeLimit: readingTime === "none" ? null : readingTime === "custom" ? customReadingMinutes * 60 : Number(readingTime),
           }
-      : area === "spelling" ? { kind: "spelling", spellingType }
+      : area === "spelling" ? { kind: "spelling", spellingType, mistakeOrder }
         : area === "grammar" ? { kind: "grammar", focus: grammarFocus }
           : area === "writing"
             ? {
@@ -150,7 +169,7 @@ export function ExerciseSetup({ area, focus, mode: initialMode }: { area: Exerci
 
         {adaptive ? (
           <>
-            <HowItWorks area={area} />
+            <HowItWorks area={area} mistakeOrder={mistakeOrder} />
             {area === "spelling" && overview?.areas.spelling.bestScore != null && (
               <p className="mt-3 text-[15px]">
                 Your best score: <strong className="tabular">{overview.areas.spelling.bestScore} points</strong>
@@ -174,6 +193,28 @@ export function ExerciseSetup({ area, focus, mode: initialMode }: { area: Exerci
                 { id: "mixed", label: "Mixed", description: "Words and sentences" },
                 { id: "word", label: "Words", description: "Single words" },
                 { id: "sentence", label: "Sentences", description: "Full dictation" },
+              ]}
+            />
+          </Field>
+        )}
+
+        {area === "spelling" && (
+          <Field label="Your mistakes">
+            <OptionCards
+              label="Order of the words you got wrong before"
+              columns={2}
+              value={mistakeOrder}
+              onChange={(v) => {
+                setMistakeOrder(v);
+                try {
+                  localStorage.setItem(MISTAKE_ORDER_KEY, v);
+                } catch {
+                  // remembering the choice is a convenience
+                }
+              }}
+              options={[
+                { id: "mixed", label: "Normal", description: "Mixed in at random" },
+                { id: "first", label: "Prioritise mistakes", description: "First in each level" },
               ]}
             />
           </Field>

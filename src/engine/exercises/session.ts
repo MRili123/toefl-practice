@@ -21,7 +21,10 @@ export function normalizeExerciseConfig(input: Partial<ExerciseConfig>): Exercis
   const count = allowed.includes(Number(input.count)) ? Number(input.count) : allowed[Math.min(1, allowed.length - 1)];
   const config: ExerciseConfig = { kind, level, count };
   if (kind === "grammar" && GRAMMAR_CATEGORIES.includes(input.focus as GrammarCategory)) config.focus = input.focus;
-  if (kind === "spelling") config.spellingType = input.spellingType === "word" || input.spellingType === "sentence" ? input.spellingType : "mixed";
+  if (kind === "spelling") {
+    config.spellingType = input.spellingType === "word" || input.spellingType === "sentence" ? input.spellingType : "mixed";
+    config.mistakeOrder = input.mistakeOrder === "first" ? "first" : "mixed";
+  }
   if (kind === "speaking-interaction") {
     if (!SPEAKING_TOPICS.includes(input.topic as never)) throw new EngineError("invalid_topic", "Choose a topic.");
     config.topic = input.topic;

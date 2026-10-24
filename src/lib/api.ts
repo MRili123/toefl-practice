@@ -5,7 +5,7 @@ import type { AttemptSummary, DashboardTest, ProfileData } from "@/server/servic
 import type { RegisterReview } from "@/engine/profile/register";
 import type { Note, NoteTag, SavedQuestion } from "@/engine/profile/store";
 import type { Course, ExerciseCategory } from "@/engine/content/library";
-import type { ExerciseConfig } from "@/engine/exercises/types";
+import type { Cefr, ExerciseConfig, WritingLevels } from "@/engine/exercises/types";
 import type { ExercisesOverview, ExerciseView } from "@/server/exercises";
 import type { AdminItem, AdminKind } from "@/server/admin/content";
 import type { Mistake } from "@/server/admin/mistakes";
@@ -98,6 +98,12 @@ export const api = {
   deleteExercise: (id: string) => request<void>(`/api/exercises/sessions/${id}`, { method: "DELETE" }),
   exerciseAction: (id: string, action: ExerciseAction) =>
     request<ExerciseView | { deleted: true }>(`/api/exercises/sessions/${id}/action`, json("POST", action)),
+  /** Series writing: the level of the corrected version of a response, or (with `level`) that text at another level. */
+  seriesWritingLevels: (sessionId: string, itemId: string, level?: Cefr) =>
+    request<WritingLevels>(`/api/sessions/${sessionId}/evaluations/${itemId}/levels`, json("POST", { level })),
+  /** Writing: the level of the improved version, or (with `level`) that text rewritten at another level. */
+  writingLevels: (id: string, itemId: string, level?: Cefr) =>
+    request<WritingLevels>(`/api/exercises/sessions/${id}/action`, json("POST", { type: "levels", itemId, level })),
   exerciseRecording: (id: string, itemId: string, blob: Blob, durationMs: number) => {
     const form = new FormData();
     form.set("itemId", itemId);
@@ -130,4 +136,5 @@ export type ExerciseAction =
   | { type: "next" }
   | { type: "retry"; itemId: string }
   | { type: "transcript"; itemId: string; text: string }
+  | { type: "levels"; itemId: string; level?: Cefr }
   | { type: "exit" };

@@ -183,7 +183,7 @@ export function SpeakingPlayer({
             </div>
             {phase === "result" && attempt?.feedback?.kind === "speaking" && (
               <div className="mt-8 border-t border-line pt-7">
-                <SpeakingFeedbackView fb={attempt.feedback} recordingUrl={recording?.url} />
+                <SpeakingFeedbackView fb={attempt.feedback} recordingUrl={recording?.url} levels={{ sessionId: view.id, itemId: attempt.itemId, initial: attempt.levels }} />
               </div>
             )}
           </>

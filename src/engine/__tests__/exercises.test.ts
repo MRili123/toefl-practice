@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { exampleAround, isPlausibleFix, mistakeFocus } from "../exercises/corrections";
 import { explainWord, gradeGrammar, gradeSpelling, normalizeSpelling } from "../exercises/grading";
 import { applyResult, masteryPercent, newRecord } from "../exercises/mastery";
-import { bumpWeakness, rememberSpellingWord } from "../exercises/memory";
+import { bumpWeakness, findSpellingWord, mergeDuplicateWords, rememberSpellingWord } from "../exercises/memory";
+import { sameWord } from "../exercises/words";
 import { adaptivePlan, seededRng } from "../exercises/selection";
 import { createExerciseSession, levelPlan, normalizeExerciseConfig, recordAttempt, resolveAttempt, summarize } from "../exercises/session";
 import type { LearnerMemory } from "../exercises/store";
@@ -98,6 +99,23 @@ describe("adaptive run order", () => {
     expect(plan.slice(0, 15).map((i) => i.level)).toEqual([...Array(5).fill("A1"), ...Array(5).fill("A2"), ...Array(5).fill("B1")]);
     expect(plan.slice(0, 2).map((i) => i.id)).toEqual(["A1-1", "A1-9"]); // A1: the mistake, then its generated question
     expect(plan[10].id).toBe("B1-3"); // B1 starts with its generated question
+  });
+
+  it("Spelling 'Normal' order: the same mistakes stay in their level, at random positions", () => {
+    const items = CEFR_LEVELS.flatMap((level) => Array.from({ length: 20 }, (_, n) => ({ id: `${level}-${n}`, level })));
+    const wrong = ["A1-1", "A1-2", "A2-3"];
+    const records = new Map(wrong.map((id) => [id, rec(id, { status: "weak", everWrong: true, incorrect: 1 })]));
+    const ladder = { A1: 5, A2: 5, B1: 5, B2: 10, C1: 10, C2: Infinity };
+    const first = adaptivePlan(items, records, seededRng(6), { perLevel: ladder, reviewInLevel: true });
+    expect(first.slice(0, 2).map((i) => i.id).sort()).toEqual(["A1-1", "A1-2"]); // prioritised: they open A1
+    const starts = new Set<number>();
+    for (let seed = 1; seed <= 20; seed++) {
+      const plan = adaptivePlan(items, records, seededRng(seed), { perLevel: ladder, reviewInLevel: true, mixReview: true });
+      expect(plan.slice(0, 15).map((i) => i.level)).toEqual([...Array(5).fill("A1"), ...Array(5).fill("A2"), ...Array(5).fill("B1")]);
+      expect(plan.slice(0, 10).map((i) => i.id)).toEqual(expect.arrayContaining(wrong)); // always included
+      starts.add(plan.findIndex((i) => i.id === "A1-1"));
+    }
+    expect(starts.size).toBeGreaterThan(1); // ...but not always at the same place
   });
 });
 
@@ -271,5 +289,54 @@ describe("dictation-safe words", () => {
     expect(rememberSpellingWord(m, "weather", "A2", "writing", "wether", 2, new Map())).toBeNull();
     expect(rememberSpellingWord(m, "bookstore", "A2", "writing", "bokstore", 3, new Map())).toBe("sp-x-bookstore");
     expect(m.generated.spelling.map((s) => s.text)).toEqual(["bookstore"]);
+  });
+});
+
+describe("no repeated words in Spelling practice", () => {
+  const empty = (): LearnerMemory => ({ records: {}, weaknesses: {}, generated: { grammar: [], spelling: [] }, seen: {}, mistakes: {} });
+  const bank = new Map<string, SpellingItem>([
+    ["government", { id: "b-gov", level: "B1", type: "word", text: "government", source: "bank" }],
+    ["select", { id: "b-sel", level: "B1", type: "word", text: "select", source: "bank" }],
+  ]);
+
+  it("treats plural, past and -ing forms as the same word, but not short look-alikes", () => {
+    expect(sameWord("government", "governments")).toBe(true);
+    expect(sameWord("selected", "select")).toBe(true);
+    expect(sameWord("studies", "study")).toBe(true);
+    expect(sameWord("building", "build")).toBe(true);
+    expect(sameWord("news", "new")).toBe(false);
+    expect(sameWord("evening", "even")).toBe(false);
+  });
+
+  it("reuses the existing word instead of adding another form of it", () => {
+    const m = empty();
+    expect(findSpellingWord(m, "Governments", bank)?.id).toBe("b-gov");
+    expect(rememberSpellingWord(m, "governments", "B2", "writing", "goverments", 1, bank)).toBe("b-gov");
+    expect(m.generated.spelling).toHaveLength(0);
+  });
+
+  it("merges a duplicate added earlier, moving its mistakes and progress", () => {
+    const m = empty();
+    m.generated.spelling.push({ id: "sp-x-governments", level: "B2", type: "word", text: "governments", source: "writing" });
+    m.generated.spelling.push({ id: "sp-x-habitat", level: "A2", type: "word", text: "habitat", source: "reading" });
+    m.records["spelling:sp-x-governments"] = rec("sp-x-governments", { status: "weak", everWrong: true, incorrect: 1 });
+    m.mistakes["mk1"] = { at: 1, spellingItemId: "sp-x-governments" };
+    m.seen["sp-x-governments"] = 2;
+    expect(mergeDuplicateWords(m, bank)).toBe(1);
+    expect(m.generated.spelling.map((s) => s.id)).toEqual(["sp-x-habitat"]);
+    expect(m.mistakes["mk1"].spellingItemId).toBe("b-gov");
+    expect(m.records["spelling:b-gov"]).toMatchObject({ itemId: "b-gov", text: "government", everWrong: true });
+    expect(m.records["spelling:sp-x-governments"]).toBeUndefined();
+    expect(m.seen["b-gov"]).toBe(2);
+    expect(mergeDuplicateWords(m, bank)).toBe(0); // nothing left to merge
+  });
+
+  it("keeps the mistake when the existing word was already practised", () => {
+    const m = empty();
+    m.generated.spelling.push({ id: "sp-x-selected", level: "B1", type: "word", text: "selected", source: "reading" });
+    m.records["spelling:b-sel"] = rec("b-sel", { status: "learning", attempts: 1, correct: 1, incorrect: 0, everWrong: false });
+    m.records["spelling:sp-x-selected"] = rec("sp-x-selected", { status: "weak", attempts: 1, correct: 0, incorrect: 1, everWrong: true });
+    mergeDuplicateWords(m, bank);
+    expect(m.records["spelling:b-sel"]).toMatchObject({ status: "weak", attempts: 2, correct: 1, incorrect: 1, everWrong: true });
   });
 });

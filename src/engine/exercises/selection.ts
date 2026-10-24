@@ -40,12 +40,13 @@ export const needsReview = (r: MasteryRecord | undefined) => !!r && r.everWrong 
  * 4. then the rest of the final level, then everything else — the run only ends when the hearts run out.
  * With `reviewInLevel`, steps 1 and 2 are folded into step 3: each level has exactly its count — its own mistakes
  * first (most-missed first), then its `first` items, then new items; any beyond the count wait for a later run.
+ * `mixReview` keeps the same items per level but shuffles them, so the mistakes come up at random positions.
  */
 export function adaptivePlan(
   items: LeveledItem[],
   records: Map<string, MasteryRecord>,
   rng: Rng,
-  { perLevel = 10 as number | Partial<Record<Cefr, number>>, first = [] as string[], reviewInLevel = false } = {},
+  { perLevel = 10 as number | Partial<Record<Cefr, number>>, first = [] as string[], reviewInLevel = false, mixReview = false } = {},
 ): LeveledItem[] {
   const countFor = (l: Cefr) => (typeof perLevel === "number" ? perLevel : (perLevel[l] ?? Infinity));
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -77,7 +78,8 @@ export function adaptivePlan(
   };
   for (const level of CEFR_LEVELS) {
     const own = reviewInLevel ? [...mistakes, ...firsts].filter((i) => i.level === level && !used.has(i.id)) : [];
-    [...own, ...fresh(level)].slice(0, countFor(level)).forEach(add);
+    const chosen = [...own, ...fresh(level)].slice(0, countFor(level));
+    (reviewInLevel && mixReview ? shuffle(chosen, rng) : chosen).forEach(add);
   }
   const top = [...CEFR_LEVELS].reverse().find((l) => items.some((i) => i.level === l));
   if (top) fresh(top).forEach(add);

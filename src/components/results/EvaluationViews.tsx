@@ -5,6 +5,9 @@ import type { Correction, DeliveryMetrics, Feedback, InterviewFeedback, RepeatFe
 import type { EvaluationRecord } from "@/engine/session/types";
 import { Button, cx, Spinner } from "@/components/ui/primitives";
 import { correctedSegments, correctedText, isRemoval, locateCorrections } from "@/lib/corrections";
+import { api } from "@/lib/api";
+import { LevelVersions } from "@/components/exercises/LevelVersions";
+import { CorrectedSpeech } from "@/components/exercises/CorrectedSpeech";
 import { IconAlert, IconChevronDown } from "@/components/ui/icons";
 import { TranscriptReview, ValidatedTranscript } from "@/components/speaking/TranscriptReview";
 
@@ -250,7 +253,13 @@ function CorrectedVersion({ text, corrections, onSelect }: { text: string; corre
   );
 }
 
-export function WritingEvaluation({ response, evaluation, onRetry }: { response: string; evaluation: EvaluationRecord | null; onRetry?: () => void }) {
+export function WritingEvaluation({ response, evaluation, onRetry, sessionId }: {
+  response: string;
+  evaluation: EvaluationRecord | null;
+  onRetry?: () => void;
+  /** With the session id, the corrected version can be rated and rewritten at other CEFR levels. */
+  sessionId?: string;
+}) {
   const fb = evaluation?.status === "done" ? (evaluation.feedback as WritingFeedback) : null;
   const [open, setOpen] = useState<number | null>(null);
   const idPrefix = `corr-${evaluation?.itemId ?? "x"}`;
@@ -277,6 +286,17 @@ export function WritingEvaluation({ response, evaluation, onRetry }: { response:
           </p>
         )}
         {fb && response.trim() && <CorrectedVersion text={response} corrections={fb.corrections} onSelect={select} />}
+        {fb && evaluation && sessionId && response.trim() && (
+          <LevelVersions
+            // a new corrected text (or a re-evaluation) is rated again
+            key={`${evaluation.itemId}-${evaluation.updatedAt}`}
+            load={(l) => api.seriesWritingLevels(sessionId, evaluation.itemId, l)}
+            improved={correctedText(response, fb.corrections)}
+            initial={evaluation.levels}
+            hideBase
+            what="corrected version"
+          />
+        )}
       </div>
       <div>
         <h4 className="text-sm font-semibold uppercase tracking-[0.06em] text-ink-2">AI evaluation</h4>
@@ -376,12 +396,15 @@ export function SpeakingEvaluation({
   evaluation,
   onRetry,
   onValidate,
+  sessionId,
 }: {
   recordingUrl: string | null;
   evaluation: EvaluationRecord | null;
   onRetry?: () => void;
   /** Validate the transcript of an answer waiting for review (scoring starts afterwards). */
   onValidate?: (text: string) => Promise<void>;
+  /** With the session id, the corrected answer can be rated and rewritten at other CEFR levels. */
+  sessionId?: string;
 }) {
   const fb = evaluation?.status === "done" ? (evaluation.feedback as Feedback) : null;
   if (recordingUrl && evaluation?.status === "review" && onValidate) {
@@ -412,6 +435,16 @@ export function SpeakingEvaluation({
           <ScorePill score={evaluation.score} max={5} />
           {fb.kind === "repeat" && <RepeatDetail fb={fb} />}
           {fb.kind === "interview" && <InterviewDetail fb={fb} />}
+          {fb.kind === "interview" && evaluation.transcript && (
+            <div className="mt-6">
+              <CorrectedSpeech
+                transcript={evaluation.transcript}
+                corrections={fb.corrections}
+                load={sessionId ? (l) => api.seriesWritingLevels(sessionId, evaluation.itemId, l) : undefined}
+                initial={evaluation.levels}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

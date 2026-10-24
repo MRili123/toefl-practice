@@ -1,4 +1,5 @@
 import type { SectionId } from "../bank/types";
+import type { WritingLevels } from "../exercises/types";
 import type { RoutingDecision } from "../adaptive/router";
 import type { Answer } from "../evaluation/objective";
 
@@ -65,6 +66,8 @@ export interface EvaluationRecord {
   /** Speaking: the learner changed the transcript before validating it. */
   edited?: boolean;
   feedback: unknown;
+  /** Writing: the CEFR level of the corrected version of the response, and it rewritten at other levels (on request). */
+  levels?: WritingLevels;
   error: string | null;
   model: string | null;
   updatedAt: number;

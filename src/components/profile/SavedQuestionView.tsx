@@ -107,9 +107,9 @@ export function SavedQuestionView({ id }: { id: string }) {
             )}
             <div className="mt-6">
               {data.task.kind === "write_email" || data.task.kind === "academic_discussion" ? (
-                <WritingEvaluation response={data.task.response.text ?? ""} evaluation={data.task.evaluation} />
+                <WritingEvaluation response={data.task.response.text ?? ""} evaluation={data.task.evaluation} sessionId={q.sessionId} />
               ) : (
-                <SpeakingEvaluation recordingUrl={data.task.response.recordingUrl} evaluation={data.task.evaluation} />
+                <SpeakingEvaluation recordingUrl={data.task.response.recordingUrl} evaluation={data.task.evaluation} sessionId={q.sessionId} />
               )}
             </div>
           </section>

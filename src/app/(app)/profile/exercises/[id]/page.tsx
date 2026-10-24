@@ -1,6 +1,8 @@
 import { ExerciseReview } from "@/components/exercises/ExerciseReview";
 
-export default async function ExerciseReviewPage({ params }: PageProps<"/profile/exercises/[id]">) {
+export default async function ExerciseReviewPage({ params, searchParams }: PageProps<"/profile/exercises/[id]">) {
   const { id } = await params;
-  return <ExerciseReview id={id} />;
+  const { item, back } = await searchParams;
+  const focus = Number(item);
+  return <ExerciseReview id={id} focus={Number.isInteger(focus) && focus > 0 ? focus : undefined} backTo={typeof back === "string" ? back : undefined} />;
 }

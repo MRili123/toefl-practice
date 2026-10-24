@@ -1,6 +1,7 @@
 import { EngineError } from "@/engine/errors";
 import { handle, readJson } from "@/server/http";
-import { answerExercise, confirmExerciseTranscript, exerciseView, exitExercise, nextWritingPrompt, retryEvaluation, submitWriting } from "@/server/exercises";
+import { answerExercise, confirmExerciseTranscript, exerciseView, exitExercise, nextWritingPrompt, retryEvaluation, submitWriting, writingLevels } from "@/server/exercises";
+import type { Cefr } from "@/engine/exercises/types";
 
 type Action =
   | { type: "answer"; itemId: string; value: string }
@@ -8,6 +9,7 @@ type Action =
   | { type: "next" }
   | { type: "retry"; itemId: string }
   | { type: "transcript"; itemId: string; text: string }
+  | { type: "levels"; itemId: string; level?: Cefr }
   | { type: "exit" };
 
 export async function POST(req: Request, ctx: RouteContext<"/api/exercises/sessions/[id]/action">) {
@@ -25,6 +27,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/exercises/sessi
         return Response.json(await nextWritingPrompt(id));
       case "retry":
         return Response.json(await retryEvaluation(id, itemId));
+      case "levels":
+        return Response.json(await writingLevels(id, itemId, a.level ?? undefined));
       case "transcript":
         return Response.json(await confirmExerciseTranscript(id, itemId, String(a.text ?? "")));
       case "exit": {

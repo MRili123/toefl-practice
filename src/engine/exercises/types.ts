@@ -279,6 +279,8 @@ export interface ExerciseConfig {
   level: Cefr;
   count: number;
   spellingType?: "word" | "sentence" | "mixed";
+  /** Spelling: your non-mastered mistakes open each level ("first") or are mixed in at random ("mixed", the default). */
+  mistakeOrder?: "first" | "mixed";
   topic?: SpeakingTopic;
   progressive?: boolean;
   writingType?: WritingType;
@@ -394,7 +396,24 @@ export interface ExerciseAttempt {
   transcriptEdited?: boolean;
   /** True once hearts/progress were applied (exactly once, even if an evaluation is retried). */
   settled?: boolean;
+  /** Writing: the CEFR level of the AI's improved version, and that text rewritten at other levels (on request). */
+  levels?: WritingLevels;
   at: number;
+}
+
+/** One change made to reach another level: the words before and after, and why it reads at that level. */
+export interface LevelChange {
+  before: string;
+  after: string;
+  why: string;
+}
+
+export interface WritingLevels {
+  /** The level of the improved version (null until the AI has rated it). */
+  estimated: Cefr | null;
+  reason: string | null;
+  /** The improved version rewritten at a level, with the main changes. */
+  versions: Partial<Record<Cefr, { text: string; changes: LevelChange[] }>>;
 }
 
 export type ExerciseStatus = "active" | "completed" | "failed" | "abandoned";

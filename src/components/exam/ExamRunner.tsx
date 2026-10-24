@@ -500,6 +500,7 @@ export function ExamRunner({ sessionId }: { sessionId: string }) {
               response={text}
               evaluation={cur.evaluations[task.id] ?? null}
               onRetry={() => void api.retryEvaluation(sessionId, task.id).then(refresh)}
+              sessionId={sessionId}
             />
           </div>
         )}

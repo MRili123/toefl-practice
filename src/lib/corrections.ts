@@ -67,3 +67,16 @@ export function correctedText(text: string, corrections: Correction[]): string {
     .map((s) => s.text)
     .join("");
 }
+
+/** Practice-exercise corrections (writing/speaking) in the shared Correction shape, so the same helpers apply. */
+export function fromExerciseCorrections(list: { original: string; correction: string; reason: string; type: string; start: number | null; end: number | null }[]): Correction[] {
+  return list.map((c) => ({
+    original: c.original,
+    suggestion: c.correction,
+    explanation: c.reason,
+    type: c.type,
+    start: c.start ?? undefined,
+    end: c.end ?? undefined,
+    source: "model" as const,
+  }));
+}

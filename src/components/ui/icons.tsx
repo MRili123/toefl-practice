@@ -15,6 +15,7 @@ const base = (p: P) => ({
 });
 
 export const IconCheck = (p: P) => <svg {...base(p)}><path d="M20 6 9 17l-5-5" /></svg>;
+export const IconPlus = (p: P) => <svg {...base(p)}><path d="M12 5v14M5 12h14" /></svg>;
 export const IconX = (p: P) => <svg {...base(p)}><path d="M18 6 6 18M6 6l12 12" /></svg>;
 export const IconDash = (p: P) => <svg {...base(p)}><path d="M6 12h12" /></svg>;
 export const IconArrowRight = (p: P) => <svg {...base(p)}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
