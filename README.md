@@ -17,11 +17,12 @@ TOEFL-style simulation, not ETS's proprietary algorithm.
 
 ```bash
 npm install
-npm run import-bank   # once: builds data/bank + public/media from ../toefl_scraper
 npm run dev           # web app on http://localhost:3000 + speech-to-text sidecar on :8765
 ```
 
 `npm run dev:web` starts only the web app; `npm run stt` starts only the sidecar.
+
+The question bank (`data/bank`) and test media (`public/media`) are not included in this repository.
 
 ## Configuration (environment variables)
 
@@ -31,7 +32,6 @@ npm run dev           # web app on http://localhost:3000 + speech-to-text sideca
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama endpoint |
 | `WHISPER_MODEL` | `small.en` | faster-whisper model for the sidecar |
 | `STT_URL` | `http://127.0.0.1:8765` | Sidecar endpoint |
-| `TOEFL_SCRAPER_DIR` | `../toefl_scraper` | Source of the raw test data for `import-bank` |
 | `TOEFL_TIME_SCALE` | `1` | Dev only: multiplies every clock (e.g. `0.02` to test timeouts) |
 
 Timings, routing threshold, score weights and the ETS concordance tables live in

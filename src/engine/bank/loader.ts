@@ -27,7 +27,7 @@ const cache: BankCache = (g.__toeflBank ??= { tests: new Map(), indexes: new Map
 export function listTests(): TestMeta[] {
   if (!cache.meta) {
     const file = path.join(BANK_DIR, "index.json");
-    if (!fs.existsSync(file)) throw new EngineError("bank_missing", "Question bank not found. Run `npm run import-bank`.", 500);
+    if (!fs.existsSync(file)) throw new EngineError("bank_missing", "Question bank not found in data/bank.", 500);
     cache.meta = JSON.parse(fs.readFileSync(file, "utf8")) as TestMeta[];
   }
   return cache.meta;

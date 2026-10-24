@@ -7,7 +7,6 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "import-bank": "tsx scripts/import-bank.ts",
     "test": "vitest run",
     "dev:web": "next dev",
     "stt": "py -3.12 stt/stt_server.py",
